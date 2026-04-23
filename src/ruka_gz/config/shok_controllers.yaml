@@ -1,0 +1,42 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 50 # Hz
+  #  use_sim_time: false
+
+    ruka_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+   
+    joint_state_broadcaster:
+       type: joint_state_broadcaster/JointStateBroadcaster
+       
+    ruka_hand_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+       
+ruka_arm_controller:
+  ros__parameters:
+    joints:
+      - base_link__link_01
+      - link_01__link_02
+      - link_02__link_03
+      - link_03__link_04
+      - link_04__link_05
+      - link_05__link_06
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+      
+ruka_hand_controller:
+  ros__parameters:
+    joints: 
+      -   link_hand_cyl__first_fin
+      -   link_hand_cyl__second_fin
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+      
+
+      

@@ -1,0 +1,32 @@
+# MoveIt uses this configuration for controller management
+trajectory_execution:
+  allowed_execution_duration_scaling: 1.2
+  allowed_goal_duration_margin: 0.5
+  allowed_start_tolerance: 0.01
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - ruka_arm_controller
+    - ruka_hand_controller
+
+  ruka_arm_controller:
+    action_ns: follow_joint_trajectory
+    type: FollowJointTrajectory
+    default: true
+    joints:
+      - base_link__link_01
+      - link_01__link_02
+      - link_02__link_03
+      - link_03__link_04
+      - link_04__link_05
+      - link_05__link_06
+
+  ruka_hand_controller:
+    action_ns: follow_joint_trajectory
+    type: FollowJointTrajectory
+    default: true
+    joints:
+      -   link_hand_cyl__first_fin
+      -   link_hand_cyl__second_fin

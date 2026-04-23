@@ -1,0 +1,79 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <!-- <xacro:macro name="ruka_gz_ros2_control" params="name initial_positions_file"> -->
+        <!-- <xacro:property name="initial_positions" value="${xacro.load_yaml(initial_positions_file)['initial_positions']}"/> -->
+
+
+      <ros2_control name="GazeboSimSystem" type="system">
+          <hardware>
+            <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+          </hardware>
+
+            <joint name="base_link__link_01">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="link_01__link_02">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="link_02__link_03">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="link_03__link_04">
+                <command_interface name="position"/>
+                 <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="link_04__link_05">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="link_05__link_06">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint>
+
+
+            <joint name="link_hand_cyl__first_fin">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint> 
+
+            <joint name="link_hand_cyl__second_fin">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+            </joint> 
+
+
+             
+      </ros2_control> 
+
+
+        <gazebo>
+          
+            <plugin name="gz_ros2_control::GazeboSimROS2ControlPlugin" filename="libgz_ros2_control-system">
+                <parameters>$(find ruka_gz)/config/shok_controllers.yaml</parameters>
+                <!-- <ros>
+                    <remapping>/controller_manager/robot_description:=/robot_description</remapping>
+                </ros> -->
+                <controller_manager_prefix_node_name>controller_manager</controller_manager_prefix_node_name>
+            </plugin>
+        </gazebo>
+
+        <!-- <gazebo>
+            <plugin name="gz_ros2_control" filename="libgazebo_ros2_control.so">
+              <parameters>$(find ruka_gz)/config/ros2_controllers.yaml</parameters>
+            </plugin>
+        </gazebo> -->
+
+    <!-- </xacro:macro> -->
+</robot>

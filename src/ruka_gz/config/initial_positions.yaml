@@ -1,0 +1,11 @@
+# Default initial positions for vr_hand's ros2_control fake system
+
+initial_positions:
+  base_link__link_01: 0
+  link_01__link_02: 0
+  link_02__link_03: 0
+  link_03__link_04: 0
+  link_04__link_05: 0
+  link_05__link_06: 0
+  link_hand_cyl__first_fin: 0 
+  link_hand_cyl__second_fin: 0

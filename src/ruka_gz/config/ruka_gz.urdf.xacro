@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="ruka_gz">
+    <!-- <xacro:arg name="prefix" default="" /> -->
+     <!-- <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />  -->
+
+    <!-- Import ruka_hand urdf file -->
+   
+    
+    <xacro:include filename="$(find ruka_gz)/config/ruka_gz.urdf" />
+    <!-- <xacro:include filename="$(find ruka_gz)/config/ruka_gz_hand.ros2_control.xacro" /> -->
+    <!-- Import control_xacro -->
+    <xacro:include filename="$(find ruka_gz)/config/ruka_gz.ros2_control.xacro" />
+
+    <!-- <xacro:ruka_gz_ros2_control name="RukaGazeboSimSystem" initial_positions_file="$(arg initial_positions_file)"/>  -->
+   
+    
+
+</robot>
