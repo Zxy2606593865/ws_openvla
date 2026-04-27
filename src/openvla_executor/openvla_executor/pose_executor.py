@@ -1,8 +1,11 @@
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
 from geometry_msgs.msg import PoseStamped, Pose
+from std_msgs.msg import Bool
+
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
     BoundingVolume,
@@ -20,6 +23,8 @@ class OpenVlaPoseExecutor(Node):
         super().__init__('openvla_pose_executor')
 
         self.declare_parameter('target_pose_topic', '/openvla_target_pose')
+        self.declare_parameter('executor_busy_topic', '/openvla_executor_busy')
+
         self.declare_parameter('move_group_action', 'move_action')
         self.declare_parameter('planning_group', 'ruka_arm_controller')
         self.declare_parameter('ee_link', 'link_06')
@@ -32,6 +37,8 @@ class OpenVlaPoseExecutor(Node):
         self.declare_parameter('acceleration_scaling', 0.2)
 
         self.target_pose_topic = self.get_parameter('target_pose_topic').value
+        self.executor_busy_topic = self.get_parameter('executor_busy_topic').value
+
         self.move_group_action = self.get_parameter('move_group_action').value
         self.planning_group = self.get_parameter('planning_group').value
         self.ee_link = self.get_parameter('ee_link').value
@@ -44,7 +51,22 @@ class OpenVlaPoseExecutor(Node):
 
         self._busy = False
 
-        self.move_group_client = ActionClient(self, MoveGroup, self.move_group_action)
+        # 用 transient_local，让后启动的 bridge 也能拿到最新 busy 状态
+        status_qos = QoSProfile(depth=1)
+        status_qos.reliability = ReliabilityPolicy.RELIABLE
+        status_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+
+        self.busy_pub = self.create_publisher(
+            Bool,
+            self.executor_busy_topic,
+            status_qos,
+        )
+
+        self.move_group_client = ActionClient(
+            self,
+            MoveGroup,
+            self.move_group_action,
+        )
 
         self.sub = self.create_subscription(
             PoseStamped,
@@ -53,12 +75,25 @@ class OpenVlaPoseExecutor(Node):
             10,
         )
 
+        self.publish_busy(False)
+
         self.get_logger().info(f'Waiting for action server "{self.move_group_action}"...')
         self.move_group_client.wait_for_server()
+
         self.get_logger().info(
             f'Ready. target_pose_topic={self.target_pose_topic}, '
+            f'executor_busy_topic={self.executor_busy_topic}, '
             f'group={self.planning_group}, ee_link={self.ee_link}'
         )
+
+    def publish_busy(self, busy: bool) -> None:
+        msg = Bool()
+        msg.data = bool(busy)
+        self.busy_pub.publish(msg)
+
+    def set_busy(self, busy: bool) -> None:
+        self._busy = bool(busy)
+        self.publish_busy(self._busy)
 
     def _build_goal_constraints(self, target_pose: Pose, frame_id: str) -> Constraints:
         constraints = Constraints()
@@ -69,6 +104,7 @@ class OpenVlaPoseExecutor(Node):
         pos_constraint.link_name = self.ee_link
 
         region = BoundingVolume()
+
         primitive = SolidPrimitive()
         primitive.type = SolidPrimitive.BOX
         primitive.dimensions = [
@@ -76,6 +112,7 @@ class OpenVlaPoseExecutor(Node):
             self.position_tolerance,
             self.position_tolerance,
         ]
+
         region.primitives.append(primitive)
         region.primitive_poses.append(target_pose)
 
@@ -88,9 +125,10 @@ class OpenVlaPoseExecutor(Node):
     def pose_callback(self, msg: PoseStamped) -> None:
         if self._busy:
             self.get_logger().warn('Executor busy, dropping target pose')
+            self.publish_busy(True)
             return
 
-        self._busy = True
+        self.set_busy(True)
 
         self.get_logger().info(
             'Sending target pose: '
@@ -107,6 +145,7 @@ class OpenVlaPoseExecutor(Node):
         request.max_velocity_scaling_factor = self.velocity_scaling
         request.max_acceleration_scaling_factor = self.acceleration_scaling
         request.start_state.is_diff = True
+
         request.goal_constraints.append(
             self._build_goal_constraints(msg.pose, msg.header.frame_id)
         )
@@ -123,24 +162,25 @@ class OpenVlaPoseExecutor(Node):
         send_goal_future = self.move_group_client.send_goal_async(goal_msg)
         send_goal_future.add_done_callback(self._goal_response_callback)
 
-    def _goal_response_callback(self, future):
+    def _goal_response_callback(self, future) -> None:
         try:
             goal_handle = future.result()
         except Exception as exc:
             self.get_logger().error(f'Failed to send MoveGroup goal: {exc}')
-            self._busy = False
+            self.set_busy(False)
             return
 
         if not goal_handle.accepted:
             self.get_logger().error('MoveGroup goal rejected')
-            self._busy = False
+            self.set_busy(False)
             return
 
         self.get_logger().info('MoveGroup goal accepted')
+
         result_future = goal_handle.get_result_async()
         result_future.add_done_callback(self._result_callback)
 
-    def _result_callback(self, future):
+    def _result_callback(self, future) -> None:
         try:
             action_result = future.result().result
             error_val = action_result.error_code.val
@@ -151,23 +191,29 @@ class OpenVlaPoseExecutor(Node):
                 self.get_logger().error(
                     f'MoveGroup execution failed, error_code={error_val}'
                 )
+
         except Exception as exc:
             self.get_logger().error(f'Failed to get MoveGroup result: {exc}')
+
         finally:
-            self._busy = False
+            self.set_busy(False)
 
 
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = None
+
     try:
         node = OpenVlaPoseExecutor()
         rclpy.spin(node)
+
     except KeyboardInterrupt:
         pass
+
     finally:
         if node is not None:
             node.destroy_node()
+
         if rclpy.ok():
             rclpy.shutdown()
 
