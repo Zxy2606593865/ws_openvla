@@ -27,6 +27,7 @@ setup(
             'action_listener = openvla_executor.action_listener:main',
             'delta_executor = openvla_executor.delta_executor:main',
             'pose_executor = openvla_executor.pose_executor:main',
+            "cartesian_pose_executor = openvla_executor.cartesian_pose_executor:main",
         ],
     },
 )
