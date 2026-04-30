@@ -72,6 +72,18 @@ class OpenVlaCartesianPoseExecutor(Node):
         # Later, after planning scene is configured, you can set this true.
         self.declare_parameter("avoid_collisions", False)
 
+        # Workspace boundary for stable red-cube approach demo.
+        # Red cube is around x=0.38, y=-0.12, z=0.02 in world/base_link.
+        # End-effector should approach above the cube, not collide with floor/cube.
+        self.declare_parameter("x_min", 0.02)
+        self.declare_parameter("x_max", 0.48)
+        self.declare_parameter("y_min", -0.22)
+        self.declare_parameter("y_max", 0.10)
+        self.declare_parameter("z_min", 0.07)
+        self.declare_parameter("z_max", 0.60)
+
+        self.declare_parameter("max_consecutive_failures", 3)
+
         # Velocity / acceleration scaling.
         # Some MoveIt versions expose these fields in GetCartesianPath.
         # The code sets them only if the fields exist.
@@ -97,6 +109,18 @@ class OpenVlaCartesianPoseExecutor(Node):
         self.jump_threshold = float(self.get_parameter("jump_threshold").value)
         self.min_fraction = float(self.get_parameter("min_fraction").value)
         self.avoid_collisions = bool(self.get_parameter("avoid_collisions").value)
+
+        self.x_min = float(self.get_parameter("x_min").value)
+        self.x_max = float(self.get_parameter("x_max").value)
+        self.y_min = float(self.get_parameter("y_min").value)
+        self.y_max = float(self.get_parameter("y_max").value)
+        self.z_min = float(self.get_parameter("z_min").value)
+        self.z_max = float(self.get_parameter("z_max").value)
+
+        self.max_consecutive_failures = int(
+            self.get_parameter("max_consecutive_failures").value
+        )
+        self.consecutive_failures = 0
 
         self.max_velocity_scaling_factor = float(
             self.get_parameter("max_velocity_scaling_factor").value
@@ -174,6 +198,52 @@ class OpenVlaCartesianPoseExecutor(Node):
     def set_busy(self, busy: bool) -> None:
         self._busy = bool(busy)
         self.publish_busy(self._busy)
+
+    def workspace_ok(self, msg: PoseStamped) -> bool:
+        x = msg.pose.position.x
+        y = msg.pose.position.y
+        z = msg.pose.position.z
+
+        ok = (
+            self.x_min <= x <= self.x_max and
+            self.y_min <= y <= self.y_max and
+            self.z_min <= z <= self.z_max
+        )
+
+        if not ok:
+            self.get_logger().warn(
+                "[ACTION_REJECTED] target outside workspace: "
+                f"x={x:.4f}, y={y:.4f}, z={z:.4f}, "
+                f"allowed x=[{self.x_min:.2f}, {self.x_max:.2f}], "
+                f"y=[{self.y_min:.2f}, {self.y_max:.2f}], "
+                f"z=[{self.z_min:.2f}, {self.z_max:.2f}]"
+            )
+
+        return ok
+
+
+    def mark_failure(self, reason: str) -> None:
+        self.consecutive_failures += 1
+        self.get_logger().warn(
+            f"[EXECUTION_FAILURE] {reason}; "
+            f"consecutive_failures={self.consecutive_failures}/"
+            f"{self.max_consecutive_failures}"
+        )
+
+        if self.consecutive_failures >= self.max_consecutive_failures:
+            self.get_logger().warn(
+                "[RECOVERY_REQUIRED] too many failed/rejected actions. "
+                "Return to openvla_ready before continuing."
+            )
+            self.consecutive_failures = 0
+
+
+    def mark_success(self) -> None:
+        if self.consecutive_failures != 0:
+            self.get_logger().info(
+                f"Reset consecutive_failures: {self.consecutive_failures} -> 0"
+            )
+        self.consecutive_failures = 0
 
     @staticmethod
     def _set_if_exists(obj, field_name: str, value) -> bool:
@@ -269,7 +339,6 @@ class OpenVlaCartesianPoseExecutor(Node):
             return
 
         self.set_busy(True)
-
         self.get_logger().info(
             "Received target pose: "
             f"frame={msg.header.frame_id}, "
@@ -281,6 +350,11 @@ class OpenVlaCartesianPoseExecutor(Node):
             f"qz={msg.pose.orientation.z:.4f}, "
             f"qw={msg.pose.orientation.w:.4f}"
         )
+
+        if not self.workspace_ok(msg):
+            self.mark_failure("target outside workspace")
+            self.set_busy(False)
+            return
 
         request = self._build_cartesian_request(msg)
         future = self.cartesian_client.call_async(request)
@@ -306,6 +380,7 @@ class OpenVlaCartesianPoseExecutor(Node):
             self.get_logger().error(
                 f"Cartesian path planning failed, error_code={error_val}"
             )
+            self.mark_failure(f"cartesian planning failed, error_code={error_val}")
             self.set_busy(False)
             return
 
@@ -314,6 +389,9 @@ class OpenVlaCartesianPoseExecutor(Node):
                 f"Cartesian path fraction too low: "
                 f"{fraction:.3f} < {self.min_fraction:.3f}"
             )
+            self.mark_failure(
+                f"cartesian fraction too low: {fraction:.3f} < {self.min_fraction:.3f}"
+            )
             self.set_busy(False)
             return
 
@@ -321,6 +399,7 @@ class OpenVlaCartesianPoseExecutor(Node):
 
         if not trajectory.joint_trajectory.points:
             self.get_logger().error("Cartesian path returned empty trajectory")
+            self.mark_failure("empty cartesian trajectory")
             self.set_busy(False)
             return
 
@@ -342,6 +421,7 @@ class OpenVlaCartesianPoseExecutor(Node):
 
         if not goal_handle.accepted:
             self.get_logger().error("ExecuteTrajectory goal rejected")
+            self.mark_failure("execute trajectory goal rejected")
             self.set_busy(False)
             return
 
@@ -357,10 +437,12 @@ class OpenVlaCartesianPoseExecutor(Node):
 
             if error_val == MoveItErrorCodes.SUCCESS:
                 self.get_logger().info("ExecuteTrajectory succeeded")
+                self.mark_success()
             else:
                 self.get_logger().error(
                     f"ExecuteTrajectory failed, error_code={error_val}"
                 )
+                self.mark_failure(f"execute trajectory failed, error_code={error_val}")
         except Exception as exc:
             self.get_logger().error(f"Failed to get ExecuteTrajectory result: {exc}")
         finally:
